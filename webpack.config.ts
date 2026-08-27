@@ -20,6 +20,16 @@ import WebpackObfuscator from 'webpack-obfuscator';
 const require = createRequire(import.meta.url);
 const HTMLInlineCSSWebpackPlugin = require('html-inline-css-webpack-plugin').default;
 
+const toolchain_root = import.meta.dirname;
+const project_root = path.resolve(process.env.TAVERN_PROJECT_ROOT ?? toolchain_root);
+const is_external_project = project_root !== toolchain_root;
+const toolchain_package = JSON.parse(fs.readFileSync(path.join(toolchain_root, 'package.json'), 'utf-8')) as {
+  browserslist?: string[];
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+};
+const browser_target = `browserslist:${toolchain_package.browserslist?.join(', ') ?? 'defaults'}`;
+
 interface Config {
   port: number;
   entries: Entry[];
@@ -50,10 +60,11 @@ function common_path(lhs: string, rhs: string) {
 
 function glob_script_files() {
   const results: string[] = [];
+  const entry_glob = is_external_project ? 'src/**/index.{ts,tsx,js,jsx}' : '{示例,src}/**/index.{ts,tsx,js,jsx}';
 
-  fs.globSync(`{示例,src}/**/index.{ts,tsx,js,jsx}`)
+  fs.globSync(entry_glob, { cwd: project_root })
     .filter(
-      file => process.env.CI !== 'true' || !fs.readFileSync(path.join(import.meta.dirname, file)).includes('@no-ci'),
+      file => process.env.CI !== 'true' || !fs.readFileSync(path.join(project_root, file)).includes('@no-ci'),
     )
     .forEach(file => {
       const file_dirname = path.dirname(file);
@@ -108,7 +119,10 @@ function watch_tavern_helper(compiler: webpack.Compiler) {
 
 let watcher: FSWatcher;
 const dump = () => {
-  exec('pnpm dump', { cwd: import.meta.dirname });
+  exec(`node "${path.join(toolchain_root, 'dump_schema.ts')}"`, {
+    cwd: toolchain_root,
+    env: { ...process.env, TAVERN_PROJECT_ROOT: project_root },
+  });
   console.info('\x1b[36m[schema_dump]\x1b[0m 已将所有 schema.ts 转换为 schema.json');
 };
 const dump_debounced = _.debounce(dump, 500, { leading: true, trailing: false });
@@ -118,7 +132,7 @@ function schema_dump(compiler: webpack.Compiler) {
     return;
   }
   if (!watcher) {
-    watcher = watch('src', {
+    watcher = watch(path.join(project_root, 'src'), {
       awaitWriteFinish: true,
     }).on('all', (_event, path) => {
       if (path.endsWith('schema.ts')) {
@@ -135,6 +149,13 @@ const bundle = () => {
 };
 const bundle_debounced = _.debounce(bundle, 500, { leading: true, trailing: false });
 function tavern_sync(compiler: webpack.Compiler) {
+  // External projects share this toolchain but keep their own tavern_sync configuration.
+  // tavern_sync.mjs resolves its yaml beside itself, so running the Toolchain copy here
+  // would accidentally bundle the Toolchain example config instead of the external project.
+  if (is_external_project) {
+    return;
+  }
+
   if (!compiler.options.watch) {
     bundle_debounced();
     return;
@@ -184,7 +205,7 @@ function tavern_sync(compiler: webpack.Compiler) {
 
 function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Configuration {
   const should_obfuscate = fs
-    .readFileSync(path.join(import.meta.dirname, entry.script), 'utf-8')
+    .readFileSync(path.join(project_root, entry.script), 'utf-8')
     .includes('@obfuscate');
   const script_filepath = path.parse(entry.script);
 
@@ -196,8 +217,9 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
     watchOptions: {
       ignored: ['**/dist', '**/node_modules'],
     },
-    entry: path.join(import.meta.dirname, entry.script),
-    target: 'browserslist',
+    context: project_root,
+    entry: path.join(project_root, entry.script),
+    target: browser_target,
     output: {
       devtoolNamespace: 'tavern_helper_template',
       devtoolModuleFilenameTemplate: info => {
@@ -211,11 +233,7 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
         return `${is_direct === true ? 'src' : 'webpack'}://${info.namespace}/${resource_path}${is_direct || is_vue_script ? '' : '?' + info.hash}`;
       },
       filename: `${script_filepath.name}.js`,
-      path: path.join(
-        import.meta.dirname,
-        'dist',
-        path.relative(import.meta.dirname, script_filepath.dir).replace(/^[^\\/]+[\\/]/, ''),
-      ),
+      path: path.join(project_root, 'dist', script_filepath.dir.replace(/^[^\\/]+[\\/]/, '')),
       chunkFilename: `${script_filepath.name}.[contenthash].chunk.js`,
       asyncChunks: true,
       clean: true,
@@ -409,20 +427,26 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
       ],
     },
     resolve: {
+      modules: [path.join(toolchain_root, 'node_modules'), 'node_modules'],
       extensions: ['.ts', '.js', '.tsx', '.jsx', '.css'],
       plugins: [
         new TsconfigPathsPlugin({
           extensions: ['.ts', '.js', '.tsx', '.jsx'],
-          configFile: path.join(import.meta.dirname, 'tsconfig.json'),
+          configFile: fs.existsSync(path.join(project_root, 'tsconfig.json'))
+            ? path.join(project_root, 'tsconfig.json')
+            : path.join(toolchain_root, 'tsconfig.json'),
         }),
       ],
       alias: {},
+    },
+    resolveLoader: {
+      modules: [path.join(toolchain_root, 'node_modules'), 'node_modules'],
     },
     plugins: (entry.html === undefined
       ? [new MiniCssExtractPlugin()]
       : [
           new HtmlWebpackPlugin({
-            template: path.join(import.meta.dirname, entry.html),
+            template: path.join(project_root, entry.html),
             filename: path.parse(entry.html).base,
             scriptLoading: 'module',
             cache: false,
@@ -561,11 +585,7 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
       const cdn = {
         sass: 'https://jspm.dev/sass',
       };
-      const package_json = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'package.json'), 'utf-8')) as {
-        dependencies?: Record<string, string>;
-        devDependencies?: Record<string, string>;
-      };
-      const package_versions = { ...package_json.devDependencies, ...package_json.dependencies };
+      const package_versions = { ...toolchain_package.devDependencies, ...toolchain_package.dependencies };
       const version = package_versions[request]?.replace(/^[~^]/, '');
       const versioned_request = /^[.\d]+$/.test(version) ? `${request}@${version}` : request;
       return callback(

@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "bootstrap": "npx --yes pnpm@10 install --frozen-lockfile",
     "build:dev": "webpack --mode development",
     "build": "webpack --mode production",
     "watch": "webpack --mode development --watch --progress",

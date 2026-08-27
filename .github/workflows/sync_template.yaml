@@ -2,11 +2,11 @@ name: sync_template
 
 on:
   schedule:
-    - cron: 0 3 * * *
+    - cron: 0 3 */3 * *
   workflow_dispatch:
 
 permissions:
-  actions: write
+  actions: read
   contents: write
   pull-requests: write
   repository-projects: read
@@ -16,14 +16,43 @@ jobs:
     if: github.repository != 'StageDog/tavern_helper_template'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout shared Toolchain
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: AndreasAugustin/actions-template-sync@v2
+
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Pull upstream template changes into runner
+        uses: AndreasAugustin/actions-template-sync@v2
         with:
           source_repo_path: StageDog/tavern_helper_template
-          pr_title: '[bot] 同步模板仓库的更新'
-          pr_commit_msg: '[bot] bump template repository update'
+          steps: prechecks,pull
+          template_sync_ignore_file_path: .github/.templatesyncignore
+          is_force_deletion: true
+          git_remote_pull_params: --allow-unrelated-histories --strategy=recursive --no-edit -X diff-algorithm=minimal -X ignore-all-space -X patience -X renormalize
+
+      - name: Verify merged upstream state before publishing
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Publish verified upstream sync PR
+        uses: AndreasAugustin/actions-template-sync@v2
+        with:
+          source_repo_path: StageDog/tavern_helper_template
+          steps: commit,push,pr
+          pr_title: '[bot] 同步中央 Toolchain 的 upstream 更新'
+          pr_commit_msg: '[bot] sync shared Toolchain upstream'
+          pr_body: '已在 runner 中合并 upstream 并通过 pnpm build 后才创建此 PR。'
           is_pr_cleanup: true
           template_sync_ignore_file_path: .github/.templatesyncignore
           is_force_deletion: true
