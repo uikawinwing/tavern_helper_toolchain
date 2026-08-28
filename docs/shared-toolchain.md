@@ -48,7 +48,7 @@ The planned central repository name is:
 
 `uikawinwing/tavern_helper_toolchain`
 
-Consumer repositories remain independent GitHub repositories. Their local `bundle.yaml` is only a thin trigger that calls the reusable workflow in the central Toolchain repository.
+Consumer repositories remain independent GitHub repositories. Their local workflows stay thin: pull requests call the read-only `consumer-verify.yaml`, while main-branch/scheduled releases call `consumer-bundle.yaml`.
 
 The reusable workflow reconstructs the same local directory layout inside the runner:
 
@@ -71,8 +71,8 @@ The shared Toolchain repository should be public unless cross-repository private
 4. `Toolchain/sync_template` checks StageDog upstream every 3 days.
 5. Upstream changes are merged into the runner first and must pass `pnpm build` before a single central sync PR is published.
 6. Consumer repos no longer run their own dependency/template sync jobs.
-7. Consumer `bundle.yaml` files only call the central reusable `consumer-bundle.yaml` workflow.
-8. The reusable workflow installs dependencies only in the checked-out shared Toolchain, then typechecks/builds/commits/tags the calling consumer.
+7. Consumer pull requests call the central read-only `consumer-verify.yaml`; it installs the shared Toolchain, then typechecks and builds without committing or tagging.
+8. Consumer `bundle.yaml` calls `consumer-bundle.yaml` only for main/master pushes, schedules, or explicit dispatches; it typechecks/builds and then commits `dist` and updates the release tag.
 9. Consumer repos may rebuild every 3 days against the latest central Toolchain, but they do not create dependency/template branches.
 
 ## Safety boundary
@@ -89,6 +89,6 @@ Files in `.github/workflows`, `project-build.mjs`, and this document are local T
 2. Replace duplicated dependency lists with the thin consumer `package.json` pattern.
 3. Make its `tsconfig.json` extend `../../Toolchain/tsconfig.json` and resolve shared types/packages from `../../Toolchain`.
 4. Disable/remove its legacy `bump_deps` and `sync_template` workflows.
-5. Replace its bundle workflow with the tiny caller that uses `uikawinwing/tavern_helper_toolchain/.github/workflows/consumer-bundle.yaml@main`.
+5. Add a pull-request verify caller for `uikawinwing/tavern_helper_toolchain/.github/workflows/consumer-verify.yaml@main` and replace its bundle workflow with the tiny `consumer-bundle.yaml@main` caller.
 6. Verify `typecheck` and `build` locally before removing duplicated template files.
 7. Remove old `node_modules`, `@types`, `util`, webpack/template examples, lockfile, and other template-only copies once the migration is verified.
