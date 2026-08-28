@@ -1,0 +1,49 @@
+name: consumer_verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_DIR: TavernDev/Scripts/project
+      TOOLCHAIN_DIR: TavernDev/Toolchain
+
+    steps:
+      - name: Checkout consumer project
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.PROJECT_DIR }}
+
+      - name: Checkout shared TavernHelper Toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: uikawinwing/tavern_helper_toolchain
+          ref: main
+          path: ${{ env.TOOLCHAIN_DIR }}
+
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install shared Toolchain dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ env.TOOLCHAIN_DIR }}
+
+      - name: Typecheck consumer
+        run: npm run typecheck
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      - name: Build consumer
+        run: npm run build
+        working-directory: ${{ env.PROJECT_DIR }}

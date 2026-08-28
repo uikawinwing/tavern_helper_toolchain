@@ -61,6 +61,8 @@ jobs:
         uses: phish108/autotag-action@v1.1.64
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref_name }}
+          release-branch: master,main
           with-v: true
 
       - name: Remove previous moving tag
