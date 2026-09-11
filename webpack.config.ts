@@ -63,8 +63,9 @@ function glob_script_files() {
   const entry_glob = is_external_project ? 'src/**/index.{ts,tsx,js,jsx}' : '{示例,src}/**/index.{ts,tsx,js,jsx}';
 
   fs.globSync(entry_glob, { cwd: project_root })
+    .filter(file => !fs.readFileSync(path.join(project_root, file), 'utf-8').includes('@no-entry'))
     .filter(
-      file => process.env.CI !== 'true' || !fs.readFileSync(path.join(project_root, file)).includes('@no-ci'),
+      file => process.env.CI !== 'true' || !fs.readFileSync(path.join(project_root, file), 'utf-8').includes('@no-ci'),
     )
     .forEach(file => {
       const file_dirname = path.dirname(file);
