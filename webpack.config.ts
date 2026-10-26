@@ -41,7 +41,7 @@ interface Entry {
 
 function parse_entry(script_file: string) {
   const html = path.join(path.dirname(script_file), 'index.html');
-  if (fs.existsSync(html)) {
+  if (fs.existsSync(path.resolve(project_root, html))) {
     return { script: script_file, html };
   }
   return { script: script_file };
